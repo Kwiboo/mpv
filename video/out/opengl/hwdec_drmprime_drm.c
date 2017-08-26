@@ -261,3 +261,13 @@ const struct ra_hwdec_driver ra_hwdec_drmprime_drm = {
     .overlay_frame = overlay_frame,
     .uninit = uninit,
 };
+
+const struct ra_hwdec_driver ra_hwdec_drmprime_drm_rkvdec = {
+    .name = "drmprime-drm-rkvdec",
+    .api = HWDEC_RKVDEC,
+    .priv_size = sizeof(struct priv),
+    .imgfmts = {IMGFMT_DRMPRIME, 0},
+    .init = init,
+    .overlay_frame = overlay_frame,
+    .uninit = uninit,
+};

@@ -153,8 +153,43 @@ static const struct vd_lavc_hwdec mp_vd_lavc_rpi_copy = {
 
 static const struct vd_lavc_hwdec mp_vd_lavc_rkmpp = {
     .type = HWDEC_RKMPP,
-    .lavc_suffix = "_rkmpp",
     .image_format = IMGFMT_DRMPRIME,
+    .delay_queue = HWDEC_DELAY_QUEUE_COUNT,
+    .lavc_suffix = "_rkmpp",
+};
+static void rkvdec_destroy_dev(struct mp_hwdec_ctx *ctx)
+{
+    av_buffer_unref(&ctx->av_device_ref);
+    talloc_free(ctx);
+}
+static struct mp_hwdec_ctx *rkvdec_create_dev(struct mpv_global *global,
+                                                struct mp_log *plog, bool probing)
+{
+    struct mp_hwdec_ctx *ctx = talloc_ptrtype(NULL, ctx);
+    *ctx = (struct mp_hwdec_ctx) {
+        .type = HWDEC_RKVDEC,
+        .ctx = "dummy",
+        .destroy = rkvdec_destroy_dev,
+    };
+    if (av_hwdevice_ctx_create(&ctx->av_device_ref, AV_HWDEVICE_TYPE_DRM,
+                               "/dev/dri/card0", NULL, 0) < 0)
+    {
+        rkvdec_destroy_dev(ctx);
+        return NULL;
+    }
+    return ctx;
+}
+static const struct vd_lavc_hwdec mp_vd_lavc_rkvdec = {
+    .type = HWDEC_RKVDEC,
+    .image_format = IMGFMT_DRMPRIME,
+    .create_dev = rkvdec_create_dev,
+    .generic_hwaccel = true,
+    .set_hwframes = true,
+    .pixfmt_map = (const enum AVPixelFormat[][2]) {
+        {AV_PIX_FMT_YUV420P10, AV_PIX_FMT_DRM_PRIME},
+        {AV_PIX_FMT_YUV420P,   AV_PIX_FMT_DRM_PRIME},
+        {AV_PIX_FMT_NONE}
+    },
 };
 
 #if HAVE_CUDA_HWACCEL
@@ -277,6 +312,7 @@ static const struct vd_lavc_hwdec *const hwdec_list[] = {
 #endif
     &mp_vd_lavc_crystalhd,
     &mp_vd_lavc_rkmpp,
+    &mp_vd_lavc_rkvdec,
     NULL
 };
 
