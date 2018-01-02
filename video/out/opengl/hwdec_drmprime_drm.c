@@ -154,7 +154,7 @@ static int overlay_frame(struct ra_hwdec *hw, struct mp_image *hw_image,
 
             if (request) {
                 drm_object_set_property(request, p->ctx->overlay_plane, "FB_ID", next_frame.fb.fb_id);
-                drm_object_set_property(request,  p->ctx->overlay_plane, "CRTC_ID", p->ctx->crtc->id);
+                drm_object_set_property(request,  p->ctx->overlay_plane, "CRTC_ID", next_frame.fb.fb_id ? p->ctx->crtc->id : 0);
                 drm_object_set_property(request,  p->ctx->overlay_plane, "SRC_X",   p->src.x0 << 16);
                 drm_object_set_property(request,  p->ctx->overlay_plane, "SRC_Y",   p->src.y0 << 16);
                 drm_object_set_property(request,  p->ctx->overlay_plane, "SRC_W",   srcw << 16);

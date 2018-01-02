@@ -265,7 +265,7 @@ static void drm_egl_swap_buffers(struct ra_ctx *ctx)
 
     if (atomic_ctx) {
         drm_object_set_property(atomic_ctx->request, atomic_ctx->primary_plane, "FB_ID", p->fb->id);
-        drm_object_set_property(atomic_ctx->request, atomic_ctx->primary_plane, "CRTC_ID", atomic_ctx->crtc->id);
+        drm_object_set_property(atomic_ctx->request, atomic_ctx->primary_plane, "CRTC_ID", p->fb->id ? atomic_ctx->crtc->id : 0);
         drm_object_set_property(atomic_ctx->request, atomic_ctx->primary_plane, "ZPOS", 1);
 
         ret = drmModeAtomicCommit(p->kms->fd, atomic_ctx->request,
