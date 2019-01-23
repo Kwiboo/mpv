@@ -23,6 +23,7 @@
 #include <math.h>
 #include <stdbool.h>
 
+#include <libavutil/hwcontext.h>
 #include <libavutil/hwcontext_drm.h>
 
 #include "common.h"
@@ -44,6 +45,7 @@ struct drm_frame {
 
 struct priv {
     struct mp_log *log;
+    struct mp_hwdec_ctx hwctx;
 
     struct mp_image_params params;
 
@@ -228,6 +230,9 @@ static void uninit(struct ra_hwdec *hw)
     disable_video_plane(hw);
     set_current_frame(hw, NULL);
 
+    hwdec_devices_remove(hw->devs, &p->hwctx);
+    av_buffer_unref(&p->hwctx.av_device_ref);
+
     if (p->ctx) {
         drm_atomic_destroy_context(p->ctx);
         p->ctx = NULL;
@@ -281,6 +286,15 @@ static int init(struct ra_hwdec *hw)
     }
 
     disable_video_plane(hw);
+
+    p->hwctx = (struct mp_hwdec_ctx) {
+        .driver_name = hw->driver->name,
+    };
+    if (!av_hwdevice_ctx_create(&p->hwctx.av_device_ref, AV_HWDEVICE_TYPE_DRM,
+                                drmGetDeviceNameFromFd2(p->ctx->fd), NULL, 0)) {
+        hwdec_devices_add(hw->devs, &p->hwctx);
+    }
+
     return 0;
 
 err:
