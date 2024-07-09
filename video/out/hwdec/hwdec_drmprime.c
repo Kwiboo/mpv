@@ -77,7 +77,7 @@ static const char *forked_pix_fmt_names[] = {
     "rpi4_10",
 };
 
-static int init(struct ra_hwdec *hw)
+static int init_drmprime(struct ra_hwdec *hw)
 {
     struct priv_owner *p = hw->priv;
 
@@ -118,6 +118,66 @@ static int init(struct ra_hwdec *hw)
                                      AV_HWDEVICE_TYPE_DRM,
                                      device_path, NULL, 0);
     talloc_free(tmp);
+    if (ret != 0) {
+        MP_VERBOSE(hw, "Failed to create hwdevice_ctx: %s\n", av_err2str(ret));
+        return -1;
+    }
+
+    /*
+     * At the moment, there is no way to discover compatible formats
+     * from the hwdevice_ctx, and in fact the ffmpeg hwaccels hard-code
+     * formats too, so we're not missing out on anything.
+     */
+    int num_formats = 0;
+    MP_TARRAY_APPEND(p, p->formats, num_formats, IMGFMT_NV12);
+    MP_TARRAY_APPEND(p, p->formats, num_formats, IMGFMT_420P);
+    MP_TARRAY_APPEND(p, p->formats, num_formats, pixfmt2imgfmt(AV_PIX_FMT_NV16));
+    MP_TARRAY_APPEND(p, p->formats, num_formats, IMGFMT_P010);
+#ifdef AV_PIX_FMT_P210
+    MP_TARRAY_APPEND(p, p->formats, num_formats, pixfmt2imgfmt(AV_PIX_FMT_P210));
+#endif
+
+    for (int i = 0; i < MP_ARRAY_SIZE(forked_pix_fmt_names); i++) {
+        enum AVPixelFormat fmt = av_get_pix_fmt(forked_pix_fmt_names[i]);
+        if (fmt != AV_PIX_FMT_NONE) {
+            MP_TARRAY_APPEND(p, p->formats, num_formats, pixfmt2imgfmt(fmt));
+        }
+    }
+
+    MP_TARRAY_APPEND(p, p->formats, num_formats, 0); // terminate it
+
+    p->hwctx.hw_imgfmt = IMGFMT_DRMPRIME;
+    p->hwctx.supported_formats = p->formats;
+    p->hwctx.driver_name = hw->driver->name;
+    hwdec_devices_add(hw->devs, &p->hwctx);
+
+    return 0;
+}
+
+static int init_v4l2request(struct ra_hwdec *hw)
+{
+    struct priv_owner *p = hw->priv;
+
+    for (int i = 0; interop_inits[i]; i++) {
+        if (interop_inits[i](hw, &p->dmabuf_interop)) {
+            break;
+        }
+    }
+
+    if (!p->dmabuf_interop.interop_map || !p->dmabuf_interop.interop_unmap) {
+        MP_VERBOSE(hw, "v4l2request hwdec requires at least one dmabuf interop backend.\n");
+        return -1;
+    }
+
+    /*
+     * AVCodecHWConfig contains a combo of a pixel format and hwdevice type,
+     * correct type must be created here or hwaccel will fail.
+     *
+     * FIXME: Create hwdevice based on type in AVCodecHWConfig
+     */
+    int ret = av_hwdevice_ctx_create(&p->hwctx.av_device_ref,
+                                     AV_HWDEVICE_TYPE_V4L2REQUEST,
+                                     NULL, NULL, 0);
     if (ret != 0) {
         MP_VERBOSE(hw, "Failed to create hwdevice_ctx: %s\n", av_err2str(ret));
         return -1;
@@ -308,7 +368,23 @@ const struct ra_hwdec_driver ra_hwdec_drmprime = {
     .priv_size = sizeof(struct priv_owner),
     .imgfmts = {IMGFMT_DRMPRIME, 0},
     .device_type = AV_HWDEVICE_TYPE_DRM,
-    .init = init,
+    .init = init_drmprime,
+    .uninit = uninit,
+    .mapper = &(const struct ra_hwdec_mapper_driver){
+        .priv_size = sizeof(struct dmabuf_interop_priv),
+        .init = mapper_init,
+        .uninit = mapper_uninit,
+        .map = mapper_map,
+        .unmap = mapper_unmap,
+    },
+};
+
+const struct ra_hwdec_driver ra_hwdec_v4l2request = {
+    .name = "v4l2request",
+    .priv_size = sizeof(struct priv_owner),
+    .imgfmts = {IMGFMT_DRMPRIME, 0},
+    .device_type = AV_HWDEVICE_TYPE_V4L2REQUEST,
+    .init = init_v4l2request,
     .uninit = uninit,
     .mapper = &(const struct ra_hwdec_mapper_driver){
         .priv_size = sizeof(struct dmabuf_interop_priv),

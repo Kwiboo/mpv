@@ -246,7 +246,7 @@ static void uninit(struct ra_hwdec *hw)
     }
 }
 
-static int init(struct ra_hwdec *hw)
+static int init_drmprime(struct ra_hwdec *hw)
 {
     struct priv *p = hw->priv;
     int draw_plane, drmprime_video_plane;
@@ -324,12 +324,102 @@ err:
     return -1;
 }
 
+static int init_v4l2request(struct ra_hwdec *hw)
+{
+    struct priv *p = hw->priv;
+    int draw_plane, drmprime_video_plane;
+
+    p->log = hw->log;
+
+    void *tmp = talloc_new(NULL);
+    struct drm_opts *opts = mp_get_config_group(tmp, hw->global, &drm_conf);
+    draw_plane = opts->draw_plane;
+    drmprime_video_plane = opts->drmprime_video_plane;
+    talloc_free(tmp);
+
+    struct mpv_opengl_drm_params_v2 *drm_params;
+
+    drm_params = ra_get_native_resource(hw->ra_ctx->ra, "drm_params_v2");
+    if (drm_params) {
+        p->ctx = drm_atomic_create_context(p->log, drm_params->fd, drm_params->crtc_id,
+                                           drm_params->connector_id, draw_plane, drmprime_video_plane);
+        if (!p->ctx) {
+            mp_err(p->log, "Failed to retrieve DRM atomic context.\n");
+            goto err;
+        }
+        if (!p->ctx->drmprime_video_plane) {
+            mp_warn(p->log, "No drmprime video plane. You might need to specify it manually using --drm-drmprime-video-plane\n");
+            goto err;
+        }
+    } else {
+        mp_verbose(p->log, "Failed to retrieve DRM fd from native display.\n");
+        goto err;
+    }
+
+    drmModeCrtcPtr crtc;
+    crtc = drmModeGetCrtc(p->ctx->fd, p->ctx->crtc->id);
+    if (crtc) {
+        p->display_w = crtc->mode.hdisplay;
+        p->display_h = crtc->mode.vdisplay;
+        drmModeFreeCrtc(crtc);
+    }
+
+    uint64_t has_prime;
+    if (drmGetCap(p->ctx->fd, DRM_CAP_PRIME, &has_prime) < 0) {
+        MP_ERR(hw, "Card does not support prime handles.\n");
+        goto err;
+    }
+
+    if (has_prime) {
+        drm_prime_init_handle_ref_count(p, &p->handle_refs);
+    }
+
+    disable_video_plane(hw);
+
+    p->hwctx = (struct mp_hwdec_ctx) {
+        .driver_name = hw->driver->name,
+        .hw_imgfmt = IMGFMT_DRMPRIME,
+    };
+
+    /*
+     * AVCodecHWConfig contains a combo of a pixel format and hwdevice type,
+     * correct type must be created here or hwaccel will fail.
+     *
+     * FIXME: Create hwdevice based on type in AVCodecHWConfig
+     */
+    int ret = av_hwdevice_ctx_create(&p->hwctx.av_device_ref,
+                                     AV_HWDEVICE_TYPE_V4L2REQUEST,
+                                     NULL, NULL, 0);
+    if (ret != 0) {
+        MP_VERBOSE(hw, "Failed to create hwdevice_ctx: %s\n", av_err2str(ret));
+        goto err;
+    }
+
+    hwdec_devices_add(hw->devs, &p->hwctx);
+
+    return 0;
+
+err:
+    uninit(hw);
+    return -1;
+}
+
 const struct ra_hwdec_driver ra_hwdec_drmprime_overlay = {
     .name = "drmprime-overlay",
     .priv_size = sizeof(struct priv),
     .imgfmts = {IMGFMT_DRMPRIME, 0},
     .device_type = AV_HWDEVICE_TYPE_DRM,
-    .init = init,
+    .init = init_drmprime,
+    .overlay_frame = overlay_frame,
+    .uninit = uninit,
+};
+
+const struct ra_hwdec_driver ra_hwdec_v4l2request_overlay = {
+    .name = "v4l2request-overlay",
+    .priv_size = sizeof(struct priv),
+    .imgfmts = {IMGFMT_DRMPRIME, 0},
+    .device_type = AV_HWDEVICE_TYPE_V4L2REQUEST,
+    .init = init_v4l2request,
     .overlay_frame = overlay_frame,
     .uninit = uninit,
 };
