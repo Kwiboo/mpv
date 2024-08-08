@@ -223,24 +223,22 @@ struct drm_atomic_context *drm_atomic_create_context(struct mp_log *log, int fd,
                 goto fail;
             }
 
-            if (value != DRM_PLANE_TYPE_CURSOR) { // Skip cursor planes
-                layercount++;
+            layercount++;
 
-                if ((!primary_id) && (value == DRM_PLANE_TYPE_PRIMARY))
-                    primary_id = plane_id;
+            if ((!primary_id) && (value == DRM_PLANE_TYPE_PRIMARY))
+                primary_id = plane_id;
 
-                if ((!overlay_id) && (value == DRM_PLANE_TYPE_OVERLAY))
-                    overlay_id = plane_id;
+            if ((!overlay_id) && (value == DRM_PLANE_TYPE_OVERLAY))
+                overlay_id = plane_id;
 
-                if (layercount == draw_plane_idx) {
-                    ctx->draw_plane = plane;
-                    continue;
-                }
+            if (layercount == draw_plane_idx) {
+                ctx->draw_plane = plane;
+                continue;
+            }
 
-                if (layercount == drmprime_video_plane_idx) {
-                    ctx->drmprime_video_plane = plane;
-                    continue;
-                }
+            if (layercount == drmprime_video_plane_idx) {
+                ctx->drmprime_video_plane = plane;
+                continue;
             }
 
             drm_object_free(plane);
